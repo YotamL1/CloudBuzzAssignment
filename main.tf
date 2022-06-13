@@ -120,3 +120,70 @@ resource "aws_iam_role_policy_attachment" "lambda_to_sns_policy" {
   policy_arn = aws_iam_policy.lambda_to_sns.arn
 }
 
+resource "aws_api_gateway_rest_api" "lambda" {
+  name          = "serverless_lambda_gw"
+}
+
+resource "aws_api_gateway_resource" "resource" {
+  path_part   = "calc"
+  parent_id   = aws_api_gateway_rest_api.lambda.root_resource_id
+  rest_api_id = aws_api_gateway_rest_api.lambda.id
+}
+
+resource "aws_api_gateway_method" "method" {
+  rest_api_id   = aws_api_gateway_rest_api.lambda.id
+  resource_id   = aws_api_gateway_resource.resource.id
+  http_method   = "GET"
+  authorization = "NONE"
+
+  request_parameters = {"method.request.querystring.Key1" = true,
+                         "method.request.querystring.Key2" = true}
+}
+
+resource "aws_api_gateway_integration" "test_terraform" {
+  rest_api_id = aws_api_gateway_rest_api.lambda.id
+  resource_id = aws_api_gateway_resource.resource.id 
+  http_method = aws_api_gateway_method.method.http_method
+
+  uri    = aws_lambda_function.lambda_function.invoke_arn
+  type   = "AWS"
+  integration_http_method = "POST"
+
+  passthrough_behavior = "WHEN_NO_TEMPLATES"
+
+  request_parameters = {
+    "integration.request.querystring.Key1":"method.request.querystring.Key1",
+    "integration.request.querystring.Key2":"method.request.querystring.Key2"
+  }
+}
+
+resource "aws_api_gateway_deployment" "test_terraform" {
+  rest_api_id = aws_api_gateway_rest_api.lambda.id
+
+  triggers = {
+    redeployment = sha1(jsonencode([
+      aws_api_gateway_resource.resource.id,
+      aws_api_gateway_method.method.id,
+      aws_api_gateway_integration.test_terraform.id,
+    ]))
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_api_gateway_stage" "test_terraform" {
+  deployment_id = aws_api_gateway_deployment.test_terraform.id
+  rest_api_id   = aws_api_gateway_rest_api.lambda.id
+  stage_name    = "Test"
+}
+
+resource "aws_lambda_permission" "api_gw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.lambda_function.function_name
+  principal     = "apigateway.amazonaws.com"
+
+  source_arn = "${aws_api_gateway_rest_api.lambda.execution_arn}/*/*"
+}

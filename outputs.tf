@@ -19,3 +19,11 @@ output "sns_arn" {
   value = aws_sns_topic.test_terraform.arn
   
 }
+
+output "api_url" {
+  
+  description = "Name of the Lambda function."
+
+  value = aws_api_gateway_stage.test_terraform.invoke_url
+  
+}
